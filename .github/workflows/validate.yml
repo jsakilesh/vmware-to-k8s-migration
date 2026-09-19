@@ -1,0 +1,57 @@
+name: Migration Validation CI
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  lint-dockerfiles:
+    name: Lint Dockerfiles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint Dockerfiles with hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: dockerfiles/Dockerfile.nginx
+
+  scan-images:
+    name: Scan Docker Images
+    runs-on: ubuntu-latest
+    needs: lint-dockerfiles
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -f dockerfiles/Dockerfile.nginx -t test-image:latest .
+
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: test-image:latest
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: 1
+
+  validate-helm:
+    name: Validate Helm Charts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+
+      - name: Helm lint
+        run: |
+          for chart in helm-charts/*/; do
+            echo "Linting: $chart"
+            helm lint "$chart"
+          done
+
+      - name: Helm template (dry-run)
+        run: |
+          for chart in helm-charts/*/; do
+            echo "Templating: $chart"
+            helm template test "$chart" > /dev/null
+          done
